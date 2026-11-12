@@ -45,7 +45,7 @@ void main() {
   });
 
   testWidgets('shows error state with retry on API failure', (tester) async {
-    await tester.pumpWidget(TriviaApp(
+    await tester.pumpWidget(TriviaShowdownApp(
       service: _serviceReturning(200, {'response_code': 5, 'results': []}),
     ));
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -54,29 +54,27 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
   });
 
-  testWidgets('full round: one answer per question, score, results',
+  testWidgets('full round: only the first answer counts, then results',
       (tester) async {
     final questions = List.generate(5, (i) => _q('Q$i?', 'Right$i'));
-    await tester.pumpWidget(TriviaApp(
+    await tester.pumpWidget(TriviaShowdownApp(
       service: _serviceReturning(200, {'response_code': 0, 'results': questions}),
     ));
     await tester.pumpAndSettle();
 
     for (var i = 0; i < 5; i++) {
       expect(find.text('Question ${i + 1} of 5'), findsOneWidget);
-      await tester.tap(find.text('Right$i'));
+      await tester.tap(find.text('Wrong A')); // first answer: wrong
       await tester.pump();
-      // Second tap must not add points (button is disabled).
-      await tester.tap(find.text('Right$i'), warnIfMissed: false);
+      await tester.tap(find.text('Right$i')); // second tap must not score
       await tester.pump();
-      expect(find.text('Score: ${i + 1}'), findsOneWidget);
-      await tester.tap(find.text(i == 4 ? 'See Results' : 'Next Question'));
+      await tester.tap(find.text(i == 4 ? 'View Final Score' : 'Next Question →'));
       await tester.pumpAndSettle();
     }
 
-    expect(find.text('Final Score: 5 / 5'), findsOneWidget);
-    await tester.tap(find.textContaining('Sync Score'));
-    await tester.pump(const Duration(seconds: 3));
-    expect(find.text('Synced (Simulated)'), findsOneWidget);
+    expect(find.text('Final Score: 0 / 5'), findsOneWidget);
+    await tester.tap(find.text('Simulate Score Sync'));
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('✓ Sync Simulation Complete'), findsOneWidget);
   });
 }

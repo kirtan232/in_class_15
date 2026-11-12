@@ -18,9 +18,9 @@ A simple Flutter trivia app. It pulls 5 questions from the Open Trivia Database,
 * Shuffles the answer choices
 * Turns the right answer green and your wrong pick red
 * You can only answer once per question, so tapping again doesn't give extra points
-* Shows "Question X of 5", a progress bar, and your score as you go
+* Shows "Question X of 5" and a progress bar at the top
 * Shows your final score at the end, with a Play Again button that loads new questions
-* Has a "Sync Score to Leaderboard" button. **This is only a simulation**: it waits 2 seconds and shows a message. No data is sent to any server.
+* Has a "Simulate Score Sync" button. **This is only a simulation**: it waits 1 second and shows a message. No data is sent to any server.
 
 ## Files
 
@@ -31,13 +31,13 @@ A simple Flutter trivia app. It pulls 5 questions from the Open Trivia Database,
 
 ## Screenshots
 
+* A question before answering (shuffled choices)
+
+  <img src="screenshots/2_question.png" width="250">
+
 * Correct answer turns green
 
   <img src="screenshots/1_correct_answer.png" width="250">
-
-* A new question before answering (shuffled choices)
-
-  <img src="screenshots/2_question.png" width="250">
 
 * Wrong answer: my pick is red and the right one is green
 
@@ -47,14 +47,18 @@ A simple Flutter trivia app. It pulls 5 questions from the Open Trivia Database,
 
   <img src="screenshots/4_final_score.png" width="250">
 
-* After tapping sync: the button says "Synced (Simulated)" and the message says no backend request was sent
+* After tapping sync: it says "✓ Sync Simulation Complete" and the message says no backend request was sent
 
   <img src="screenshots/5_simulated_sync.png" width="250">
+
+* Error state: with no connection, the request timed out and the app showed a readable message and a Retry button instead of an empty screen
+
+  <img src="screenshots/6_error_state.png" width="250">
 
 ## About the score sync
 
 * The sync button is a **simulation**, not a real cloud save
-* It builds a payload with the score, the total, and the time, then just waits 2 seconds
+* It builds a payload with the score and the total, then just waits 1 second
 * Nothing is sent to a server and nothing is saved anywhere
 * A real version would send a POST request to a server and only say "synced" after the server says it worked
 

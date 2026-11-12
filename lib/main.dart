@@ -4,45 +4,42 @@ import 'models/question.dart';
 import 'services/trivia_service.dart';
 
 void main() {
-  runApp(const TriviaApp());
+  runApp(const TriviaShowdownApp());
 }
 
-class TriviaApp extends StatelessWidget {
+class TriviaShowdownApp extends StatelessWidget {
   final TriviaService? service;
-  const TriviaApp({super.key, this.service});
+  const TriviaShowdownApp({super.key, this.service});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Trivia Showdown',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: TriviaScreen(service: service ?? TriviaService()),
+      title: 'API-to-Cloud Trivia Showdown',
+      theme: ThemeData(primarySwatch: Colors.deepOrange),
+      home: TriviaShowdownScreen(service: service ?? TriviaService()),
     );
   }
 }
 
-enum LoadState { loading, ready, error }
-
-class TriviaScreen extends StatefulWidget {
+class TriviaShowdownScreen extends StatefulWidget {
   final TriviaService service;
-  const TriviaScreen({super.key, required this.service});
+  const TriviaShowdownScreen({super.key, required this.service});
 
   @override
-  State<TriviaScreen> createState() => _TriviaScreenState();
+  State<TriviaShowdownScreen> createState() => _TriviaShowdownScreenState();
 }
 
-class _TriviaScreenState extends State<TriviaScreen> {
-  LoadState _state = LoadState.loading;
-  String _errorMessage = '';
+class _TriviaShowdownScreenState extends State<TriviaShowdownScreen> {
   List<Question> _questions = [];
+  bool _isLoading = true;
+  String _error = '';
   int _currentIndex = 0;
   int _score = 0;
-  String? _selectedAnswer;
-  bool _finished = false;
+  bool _answered = false;
+  String? _selectedOption;
+  bool _isSynced = false;
+  bool _isSyncing = false;
+  int _roundId = 0;
 
   @override
   void initState() {
@@ -51,35 +48,31 @@ class _TriviaScreenState extends State<TriviaScreen> {
   }
 
   Future<void> _loadTriviaData() async {
-    setState(() {
-      _state = LoadState.loading;
-      _errorMessage = '';
-    });
+    final roundId = _roundId;
     try {
       final questions = await widget.service.fetchQuestions();
-      if (!mounted) return;
+      if (!mounted || roundId != _roundId) return;
       setState(() {
         _questions = questions;
-        _currentIndex = 0;
-        _score = 0;
-        _selectedAnswer = null;
-        _finished = false;
-        _state = LoadState.ready;
+        _isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || roundId != _roundId) return;
       setState(() {
-        _errorMessage = e.toString();
-        _state = LoadState.error;
+        _error = e.toString();
+        _isLoading = false;
       });
     }
   }
 
-  void _answerQuestion(String answer) {
-    if (_selectedAnswer != null) return; // only the first tap counts
+  void _answerQuestion(String option) {
+    if (_answered) return; // only the first answer counts
     setState(() {
-      _selectedAnswer = answer;
-      if (answer == _questions[_currentIndex].correctAnswer) _score++;
+      _answered = true;
+      _selectedOption = option;
+      if (option == _questions[_currentIndex].correctAnswer) {
+        _score++;
+      }
     });
   }
 
@@ -87,246 +80,191 @@ class _TriviaScreenState extends State<TriviaScreen> {
     setState(() {
       if (_currentIndex < _questions.length - 1) {
         _currentIndex++;
-        _selectedAnswer = null;
+        _answered = false;
+        _selectedOption = null;
       } else {
-        _finished = true;
+        _currentIndex++; // shows the results screen
       }
     });
+  }
+
+  /// SIMULATION ONLY: no network request is sent. The delay stands in for
+  /// the time a real POST to a leaderboard server would take.
+  Future<void> _syncScoreToCloud() async {
+    if (_isSyncing || _isSynced) return;
+    final roundId = _roundId;
+    final payload = {'score': _score, 'total': _questions.length};
+    setState(() => _isSyncing = true);
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted || roundId != _roundId) return;
+    setState(() {
+      _isSyncing = false;
+      _isSynced = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Simulated sync complete; no backend request was sent. Payload: $payload',
+        ),
+      ),
+    );
+  }
+
+  /// Used by both Play Again and Retry.
+  void _restart() {
+    _roundId++;
+    setState(() {
+      _isLoading = true;
+      _error = '';
+      _currentIndex = 0;
+      _score = 0;
+      _answered = false;
+      _selectedOption = null;
+      _isSynced = false;
+      _isSyncing = false;
+    });
+    _loadTriviaData();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Trivia Showdown'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: _buildBody(),
-        ),
+      appBar: AppBar(title: const Text('Cloud Trivia Showdown: API Edition')),
+      body: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _error.isNotEmpty
+                ? _buildError()
+                : _currentIndex >= _questions.length
+                    ? _buildResults()
+                    : _buildQuestion(),
       ),
     );
   }
 
-  Widget _buildBody() {
-    switch (_state) {
-      case LoadState.loading:
-        return const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Fetching questions...'),
-            ],
+  Widget _buildError() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            _error,
+            key: const Key('errorText'),
+            style: const TextStyle(color: Colors.red, fontSize: 16),
+            textAlign: TextAlign.center,
           ),
-        );
-      case LoadState.error:
-        return Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.wifi_off, size: 56, color: Colors.red),
-              const SizedBox(height: 12),
-              Text(
-                _errorMessage,
-                key: const Key('errorText'),
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: _loadTriviaData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ],
+          const SizedBox(height: 16),
+          TextButton(onPressed: _restart, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResults() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Showdown Complete!',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
-        );
-      case LoadState.ready:
-        return _finished
-            ? ResultsView(
-                score: _score,
-                total: _questions.length,
-                onReplay: _loadTriviaData,
-              )
-            : _buildQuestion();
-    }
+          const SizedBox(height: 12),
+          Text(
+            'Final Score: $_score / ${_questions.length}',
+            style: const TextStyle(fontSize: 18),
+          ),
+          const SizedBox(height: 24),
+          if (!_isSynced)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.deepOrange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              onPressed: _isSyncing ? null : _syncScoreToCloud,
+              icon: const Icon(Icons.cloud_upload),
+              label: Text(_isSyncing ? 'Simulating sync...' : 'Simulate Score Sync'),
+            )
+          else
+            const Text(
+              '✓ Sync Simulation Complete',
+              style: TextStyle(
+                color: Colors.green,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+          const SizedBox(height: 16),
+          TextButton(onPressed: _restart, child: const Text('Play Again')),
+        ],
+      ),
+    );
   }
 
   Widget _buildQuestion() {
-    final q = _questions[_currentIndex];
-    final answered = _selectedAnswer != null;
-    final isLast = _currentIndex == _questions.length - 1;
-
+    final question = _questions[_currentIndex];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Question ${_currentIndex + 1} of ${_questions.length}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            Text('Score: $_score', style: Theme.of(context).textTheme.titleMedium),
-          ],
-        ),
-        const SizedBox(height: 8),
         LinearProgressIndicator(
-          value: (_currentIndex + (answered ? 1 : 0)) / _questions.length,
+          value: (_currentIndex + 1) / _questions.length,
+          backgroundColor: Colors.orange.shade100,
+          color: Colors.deepOrange,
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         Text(
-          q.questionText,
-          style: Theme.of(context).textTheme.headlineSmall,
+          'Question ${_currentIndex + 1} of ${_questions.length}',
+          style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: ListView(
-            children: q.options.map((option) {
-              Color? bg;
-              Color? fg;
-              if (answered) {
-                if (option == q.correctAnswer) {
-                  bg = Colors.green;
-                  fg = Colors.white;
-                } else if (option == _selectedAnswer) {
-                  bg = Colors.red;
-                  fg = Colors.white;
-                }
-              }
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: bg,
-                    foregroundColor: fg,
-                    disabledBackgroundColor: bg,
-                    disabledForegroundColor: fg,
-                    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-                  ),
-                  onPressed: answered ? null : () => _answerQuestion(option),
-                  child: Text(option, textAlign: TextAlign.center),
-                ),
-              );
-            }).toList(),
+        const SizedBox(height: 12),
+        Card(
+          elevation: 4,
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Text(question.questionText, style: const TextStyle(fontSize: 18)),
           ),
         ),
-        if (answered) ...[
-          Text(
-            _selectedAnswer == q.correctAnswer
-                ? 'Correct!'
-                : 'Wrong. The answer was: ${q.correctAnswer}',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: _selectedAnswer == q.correctAnswer ? Colors.green : Colors.red,
+        const SizedBox(height: 20),
+        ...question.options.map((opt) {
+          Color btnColor = Colors.white;
+          if (_answered) {
+            if (opt == question.correctAnswer) {
+              btnColor = Colors.green.shade200;
+            } else if (opt == _selectedOption) {
+              btnColor = Colors.red.shade200;
+            }
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: btnColor,
+                foregroundColor: Colors.black87,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              onPressed: () => _answerQuestion(opt),
+              child: Text(opt, style: const TextStyle(fontSize: 16)),
             ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
+          );
+        }),
+        const Spacer(),
+        if (_answered)
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepOrange,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
             onPressed: _nextQuestion,
-            child: Text(isLast ? 'See Results' : 'Next Question'),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class ResultsView extends StatefulWidget {
-  final int score;
-  final int total;
-  final VoidCallback onReplay;
-
-  const ResultsView({
-    super.key,
-    required this.score,
-    required this.total,
-    required this.onReplay,
-  });
-
-  @override
-  State<ResultsView> createState() => _ResultsViewState();
-}
-
-class _ResultsViewState extends State<ResultsView> {
-  bool _syncing = false;
-  bool _synced = false;
-
-  /// SIMULATION ONLY: no network request is sent. The delay stands in for
-  /// the latency of a real POST to a leaderboard endpoint.
-  Future<void> _syncScoreToCloud() async {
-    setState(() => _syncing = true);
-    final payload = {
-      'score': widget.score,
-      'total': widget.total,
-      'submittedAt': DateTime.now().toIso8601String(),
-    };
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    setState(() {
-      _syncing = false;
-      _synced = true;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Simulated sync complete (no backend request sent). Payload: $payload',
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.emoji_events, size: 72, color: Colors.amber),
-          const SizedBox(height: 12),
-          Text('Round Complete!', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 8),
-          Text(
-            'Final Score: ${widget.score} / ${widget.total}',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 32),
-          FilledButton.icon(
-            onPressed: (_syncing || _synced) ? null : _syncScoreToCloud,
-            icon: _syncing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(_synced ? Icons.check : Icons.cloud_upload),
-            label: Text(
-              _synced
-                  ? 'Synced (Simulated)'
-                  : _syncing
-                      ? 'Syncing...'
-                      : 'Sync Score to Leaderboard (Simulated)',
+            child: Text(
+              _currentIndex < _questions.length - 1
+                  ? 'Next Question →'
+                  : 'View Final Score',
             ),
           ),
-          const SizedBox(height: 6),
-          const Text(
-            'Classroom simulation: no data is sent to a server.',
-            style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: widget.onReplay,
-            icon: const Icon(Icons.replay),
-            label: const Text('Play Again'),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
